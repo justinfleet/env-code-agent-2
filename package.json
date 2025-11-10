@@ -11,8 +11,7 @@
     "dev": "tsx src/cli.ts",
     "build": "tsc",
     "start": "node dist/cli.js",
-    "clone": "tsx src/cli.ts clone",
-    "test": "tsx src/cli.ts test"
+    "clone": "tsx src/cli.ts clone"
   },
   "keywords": [
     "api",
@@ -24,6 +23,7 @@
   "author": "Fleet Team",
   "license": "MIT",
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
     "better-sqlite3": "^12.4.1",
     "dotenv": "^17.2.3",
     "express": "^4.21.1",
