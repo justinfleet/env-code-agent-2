@@ -74,8 +74,12 @@ OUTPUT_DIR=./my-clone pnpm clone http://localhost:3000
 ```bash
 cd output/cloned-env
 pnpm install
-pnpm dev
+pnpm run dev  # Starts server + MCP via mprocs
 ```
+
+The `pnpm run dev` command uses mprocs to start both:
+- **Server**: Express API on http://localhost:3001
+- **MCP**: Python MCP server for LLM interaction
 
 ## How It Works
 
@@ -176,11 +180,16 @@ MAX_ITERATIONS=50                          # Max agent iterations
 
 Generated environments follow all Fleet standards:
 
-- ✅ `seed.db` ready for immediate use
+- ✅ `seed.db` ready for immediate use (contains schema + initial data)
+- ✅ `current.sqlite` used at runtime (auto-copied from seed.db)
 - ✅ `schema.sql` without CHECK constraints
 - ✅ INTEGER AUTOINCREMENT primary keys
 - ✅ WAL mode + foreign keys enabled
-- ✅ DATABASE_PATH environment variable support
+- ✅ DATABASE_PATH → ENV_DB_DIR → default precedence
+- ✅ MCP server for LLM interaction (Python-based)
+- ✅ pnpm workspace monorepo structure
+- ✅ mprocs.yaml for multi-process development
+- ✅ Dockerfile for production deployment
 - ✅ Backend-driven (no localStorage dependencies)
 - ✅ Deterministic behavior support
 
@@ -223,9 +232,12 @@ pnpm start clone http://localhost:3000
 - [x] Agentic exploration with LLM decision-making
 - [x] Specification generation from observations
 - [x] Code generation with Fleet compliance
+- [x] MCP server generation (Python-based with uv)
+- [x] pnpm monorepo structure
+- [x] mprocs.yaml for multi-process development
+- [x] Dockerfile for production deployment
 - [ ] Validation agent with differential testing
 - [ ] Iterative refinement loop
-- [ ] MCP server generation
 - [ ] SvelteKit client generation
 - [ ] Support for authenticated APIs
 - [ ] CLI tool cloning (non-HTTP)

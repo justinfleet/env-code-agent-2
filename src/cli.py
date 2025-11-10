@@ -153,8 +153,13 @@ def main():
     print(f"📂 Fleet environment created at: {output_dir}")
     print(f"\n📝 Next steps:")
     print(f"   cd {output_dir}")
-    print(f"   npm install")
-    print(f"   npm run dev")
+    print(f"   pnpm install")
+    print(f"   pnpm run dev")
+    print(f"\n💡 The environment follows Fleet standards:")
+    print(f"   - Uses current.sqlite (auto-copied from seed.db)")
+    print(f"   - Supports DATABASE_PATH/ENV_DB_DIR environment variables")
+    print(f"   - Includes MCP server for LLM interaction")
+    print(f"   - Runs with mprocs for multi-process development")
     print()
 
 

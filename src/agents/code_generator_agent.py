@@ -15,35 +15,93 @@ CODE_GENERATION_SYSTEM_PROMPT = """You are an expert full-stack developer specia
 Generate a complete, production-ready Fleet environment based on the provided API specification.
 
 ## Fleet Requirements (CRITICAL):
-1. **Database**:
+1. **Database Configuration**:
    - SQLite with WAL mode enabled
    - INTEGER AUTOINCREMENT for primary keys
-   - NO CHECK constraints (use validation in code)
+   - NO CHECK constraints in schema.sql (use validation in code)
    - Foreign keys enabled
-   - seed.db ready for immediate use
+   - seed.db ready for immediate use (contains schema + initial data)
+   - Uses current.sqlite at runtime (auto-copied from seed.db if not exists)
+   - Database path precedence: DATABASE_PATH → ENV_DB_DIR → ./data/current.sqlite
 
-2. **Server**:
-   - Express + TypeScript
-   - Proper error handling
+2. **Server (TypeScript + Express)**:
+   - Express + TypeScript server in server/ directory
+   - Proper error handling with try/catch
    - CORS enabled
    - Real SQL queries (no mocks!)
    - Routes organized by resource
+   - Uses better-sqlite3 with Drizzle ORM (optional, can use raw better-sqlite3)
 
-3. **File Structure**:
+3. **MCP Server (Python)**:
+   - Python-based MCP server in mcp/ directory
+   - Uses uv for dependency management (pyproject.toml)
+   - Implements Model Context Protocol for LLM interaction
+   - Fetches data from local server API (http://localhost:3001/api)
+   - Environment variable: RAMP_ENV=local (for local dev) or production
+   - Basic tools: process_data, execute_query, load_* functions
+
+4. **Monorepo Structure (pnpm workspace)**:
+   - Root pnpm-workspace.yaml defining workspace packages
+   - Root package.json with workspace scripts
+   - server/ package with its own package.json
+   - mcp/ package with Python dependencies
+   - mprocs.yaml for running all services together
+
+5. **File Structure**:
    ```
    cloned-env/
-   ├── package.json
-   ├── tsconfig.json
+   ├── pnpm-workspace.yaml       # pnpm workspace config
+   ├── package.json              # Root package.json with "dev": "mprocs"
+   ├── mprocs.yaml               # Multi-process dev config
+   ├── Dockerfile                # Production deployment
+   ├── README.md                 # Setup instructions
    ├── data/
-   │   ├── schema.sql
-   │   └── seed.db (generated from schema)
-   ├── src/
-   │   ├── index.ts (main server)
-   │   ├── lib/
-   │   │   └── db.ts (database connection)
-   │   └── routes/
-   │       └── [resource].ts (one file per resource)
-   └── README.md
+   │   ├── schema.sql           # Database schema (NO CHECK constraints)
+   │   └── seed.db              # Source database (ready to copy)
+   ├── server/
+   │   ├── package.json         # Server dependencies
+   │   ├── tsconfig.json        # TypeScript config
+   │   ├── src/
+   │   │   ├── index.ts        # Main Express server
+   │   │   ├── lib/
+   │   │   │   └── db.ts       # Database connection with path precedence
+   │   │   └── routes/
+   │   │       └── [resource].ts
+   └── mcp/
+       ├── pyproject.toml       # Python dependencies (uv)
+       ├── src/
+       │   └── [app]_mcp/
+       │       ├── __init__.py
+       │       ├── server.py    # MCP server implementation
+       │       └── client.py    # API client
+       └── README.md            # MCP setup instructions
+   ```
+
+6. **Database Path Handling (CRITICAL)**:
+   In server/src/lib/db.ts, implement this precedence:
+   ```typescript
+   function resolveDatabasePath() {
+     // 1. DATABASE_PATH env var (highest priority)
+     if (process.env.DATABASE_PATH?.trim()) {
+       return path.resolve(process.env.DATABASE_PATH);
+     }
+     // 2. ENV_DB_DIR env var
+     if (process.env.ENV_DB_DIR) {
+       return path.join(process.env.ENV_DB_DIR, 'current.sqlite');
+     }
+     // 3. Default: ./data/current.sqlite
+     return path.join(__dirname, '../../../data/current.sqlite');
+   }
+
+   const DATABASE_PATH = resolveDatabasePath();
+
+   // Auto-copy seed.db to current.sqlite if not exists
+   if (!fs.existsSync(DATABASE_PATH)) {
+     const seedPath = path.join(path.dirname(DATABASE_PATH), 'seed.db');
+     if (fs.existsSync(seedPath)) {
+       fs.copyFileSync(seedPath, DATABASE_PATH);
+     }
+   }
    ```
 
 ## Available Tools:
@@ -52,24 +110,33 @@ Generate a complete, production-ready Fleet environment based on the provided AP
 - complete_generation: Signal when all files are generated
 
 ## Code Style:
-- Use TypeScript with proper types
+- Use TypeScript with proper types for server code
+- Use Python 3.11+ for MCP server
 - Use better-sqlite3 for database
 - Proper error handling with try/catch
 - RESTful endpoint design
 - Consistent response format: { data: ..., error: ... }
 
-## Steps:
-1. Create package.json with all dependencies
-2. Create tsconfig.json
-3. Create data/schema.sql with proper SQLite schema
-4. Create src/lib/db.ts for database connection
-5. Create src/routes/[resource].ts for each resource
-6. Create src/index.ts as main server
-7. Create README.md with setup instructions
-8. Create seed database from schema
-9. Call complete_generation when done
+## Steps (Follow in Order):
+1. Create pnpm-workspace.yaml
+2. Create root package.json with workspace config
+3. Create mprocs.yaml with server and mcp processes
+4. Create Dockerfile for production
+5. Create server/package.json with dependencies
+6. Create server/tsconfig.json
+7. Create data/schema.sql with proper SQLite schema (NO CHECK constraints)
+8. Create server/src/lib/db.ts with DATABASE_PATH precedence logic
+9. Create server/src/routes/[resource].ts for each resource
+10. Create server/src/index.ts as main server
+11. Create mcp/pyproject.toml with uv dependencies
+12. Create mcp/src/[app]_mcp/server.py (basic MCP server)
+13. Create mcp/src/[app]_mcp/client.py (API client)
+14. Create mcp/README.md with MCP setup instructions
+15. Create root README.md with full setup instructions
+16. Create seed database from schema
+17. Call complete_generation when done
 
-Be thorough and ensure all files are production-ready!
+Be thorough and ensure all files are production-ready and Fleet-compliant!
 """
 
 
@@ -228,19 +295,44 @@ class CodeGeneratorAgent(BaseAgent):
 
 {spec_json}
 
-Create all necessary files following Fleet standards:
-1. package.json with dependencies (express, better-sqlite3, cors, typescript, etc.)
-2. tsconfig.json with proper settings
-3. data/schema.sql with the database schema
-4. src/lib/db.ts for database connection (WAL mode, foreign keys enabled)
-5. src/routes/[resource].ts for each resource (books, etc.)
-6. src/index.ts as the main Express server
-7. README.md with setup and usage instructions
-8. Create seed.db from the schema
+Create all necessary files following Fleet standards. You MUST generate ALL of these files:
 
-Use the write_file tool for each file, then create_seed_database, then complete_generation.
+**Root Configuration:**
+1. pnpm-workspace.yaml - Define packages: ["server", "mcp"]
+2. package.json - Root package with "dev": "mprocs" script, pnpm workspace config
+3. mprocs.yaml - Multi-process config for server + mcp
+4. Dockerfile - Production deployment configuration
+5. README.md - Complete setup instructions with pnpm run dev
 
-Make sure all code is production-ready with proper error handling!"""
+**Data Layer:**
+6. data/schema.sql - Database schema (NO CHECK constraints!)
+7. Create seed.db from schema (use create_seed_database tool)
+
+**Server Package (server/):**
+8. server/package.json - Dependencies: express, better-sqlite3, cors, typescript, tsx
+9. server/tsconfig.json - TypeScript configuration
+10. server/src/lib/db.ts - Database connection with DATABASE_PATH→ENV_DB_DIR→default precedence
+11. server/src/routes/[resource].ts - One file per resource
+12. server/src/index.ts - Main Express server
+
+**MCP Package (mcp/):**
+13. mcp/pyproject.toml - Python dependencies with uv (mcp, httpx, etc.)
+14. mcp/src/[app_name]_mcp/__init__.py - Package init
+15. mcp/src/[app_name]_mcp/server.py - MCP server with basic tools
+16. mcp/src/[app_name]_mcp/client.py - API client for local server
+17. mcp/README.md - MCP setup and usage instructions
+
+CRITICAL Requirements:
+- server/src/lib/db.ts MUST use current.sqlite (not seed.db directly)
+- MUST implement DATABASE_PATH → ENV_DB_DIR → default precedence
+- MUST auto-copy seed.db to current.sqlite if not exists
+- mprocs.yaml MUST run both server and mcp processes
+- Root package.json MUST have "dev": "mprocs" script
+- Use pnpm, not npm!
+
+Use write_file for each file, then create_seed_database, then complete_generation.
+
+Generate production-ready code with proper error handling!"""
 
         result = self.run(initial_prompt)
 
