@@ -110,7 +110,12 @@ python3 -m src.cli explore http://localhost:3001
 # From local spec file
 python3 -m src.cli from-spec ./examples/realworld-conduit-spec.json
 
-# From URL (OpenAPI, etc.)
+# From documentation URL (auto-extracts and parses)
+python3 -m src.cli from-spec https://realworld-docs.netlify.app/specifications/backend/endpoints \
+    --output ./output-realworld \
+    --port 3003
+
+# From OpenAPI spec URL
 python3 -m src.cli from-spec https://example.com/api-spec.json
 
 # With custom options
@@ -120,6 +125,7 @@ python3 -m src.cli from-spec ./spec.json \
 ```
 
 **Supported spec formats:**
+- Documentation URLs (HTML - auto-extracts API info)
 - OpenAPI 3.x (JSON/YAML)
 - RealWorld Conduit format
 - Custom JSON specifications
@@ -217,27 +223,40 @@ python3 -m src.cli clone http://localhost:3000
 ### Example 2: From Formal Specification (RealWorld Conduit)
 
 ```bash
-# Use included example spec
-python3 -m src.cli from-spec ./examples/realworld-conduit-spec.json
+# From documentation URL
+python3 -m src.cli from-spec https://realworld-docs.netlify.app/specifications/backend/endpoints \
+    --output ./output-realworld \
+    --port 3003
 
 # Output:
 📋 PHASE 1: SPECIFICATION INGESTION
-📥 Fetching spec from ./examples/realworld-conduit-spec.json...
-✅ Read 15234 characters (JSON format)
+📥 Fetching spec from https://realworld-docs.netlify.app/specifications/backend/endpoints...
+✅ Fetched 44606 characters (HTML format)
+🔍 Extracting API information from HTML...
+✅ Reduced to 8234 chars (relevant content only)
+💭 Agent: Parsing endpoint definitions...
+💭 Agent: Building database schema from data structures...
 ✅ Specification parsed successfully!
    API: RealWorld Conduit API
    Endpoints: 19
    Tables: 7
 
 ⚡ PHASE 2: FLEET ENVIRONMENT GENERATION
-📁 Output directory: ./output/cloned-env
+📁 Output directory: ./output-realworld/cloned-env
 🔧 Generating files...
-✅ Code generation complete!
+✅ Code generation complete in 11 iterations!
+   Generated 26 files
 
 🎉 CLONING COMPLETE!
 ```
 
-The included `examples/realworld-conduit-spec.json` demonstrates:
+Alternatively, use the included local spec file:
+
+```bash
+python3 -m src.cli from-spec ./examples/realworld-conduit-spec.json
+```
+
+The RealWorld Conduit API demonstrates:
 - Complete RealWorld (Medium clone) API specification
 - 19 endpoints (articles, comments, users, profiles, favorites, follows, tags)
 - 7 database tables with relationships
