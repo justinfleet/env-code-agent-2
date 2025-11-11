@@ -437,7 +437,7 @@ class SpecificationIngestionAgent(BaseAgent):
 
         # Create initial prompt
         if source_type == "url":
-            initial_prompt = f"""Please parse the specification from this URL: {spec_source}
+            initial_prompt = """Please parse the specification from this URL: """ + spec_source + """
 
 This URL may be:
 - A documentation page (HTML/Markdown) with endpoint descriptions
@@ -497,7 +497,7 @@ Then infer complete database schema with:
 - Foreign key relationships
 - Primary keys (INTEGER AUTOINCREMENT)"""
         else:
-            initial_prompt = f"""Please parse the specification from this file: {spec_source}
+            initial_prompt = """Please parse the specification from this file: """ + spec_source + """
 
 Steps:
 1. Use the read_local_spec tool to read the specification
