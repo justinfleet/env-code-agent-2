@@ -136,24 +136,71 @@ Generate a complete, production-ready Fleet environment based on the provided AP
 - RESTful endpoint design
 - Consistent response format: { data: ..., error: ... }
 
+## Required Configuration Files:
+
+### .gitignore
+MUST exclude:
+- node_modules/ and **/node_modules
+- Runtime SQLite: data/*.sqlite, data/*.db, *.sqlite-shm, *.sqlite-wal
+- Logs: mprocs.log, *.log
+- Build artifacts: dist/, build/, .cache
+- Environment: .env, .env.local, server/.env
+- Editor: .vscode, .idea, .cursor/
+- OS: .DS_Store
+- Meilisearch: meilisearch, meilisearch.db/, data/meilisearch/
+
+### .dockerignore
+MUST exclude:
+- Development: node_modules, .git, .gitignore, README.md
+- Logs and cache: *.log, .cache, coverage
+- Environment: .env, .env.local
+- Editors: .vscode, .idea
+- Runtime SQLite: data/current.sqlite, data/*.sqlite-shm, data/*.sqlite-wal
+- Meilisearch data: data/meilisearch
+
+### .npmrc
+MUST contain:
+```
+side-effects-cache=false
+```
+
+### .github/workflows/deploy.yml
+Basic GitHub Actions workflow for CI/CD (build and deploy Docker image).
+Include: checkout, Docker build, optional deployment steps.
+Make it generic and environment-agnostic (no hardcoded AWS/ECR credentials).
+
+### API_DOCUMENTATION.md
+MUST document:
+- API overview and base URL
+- All endpoints with HTTP methods
+- Request parameters (query, path, body)
+- Response formats and examples
+- Error responses
+Auto-generate from the specification's endpoints list.
+
 ## Steps (Follow in Order):
-1. Create pnpm-workspace.yaml
-2. Create root package.json with workspace config
-3. Create mprocs.yaml with server and mcp processes
-4. Create Dockerfile for production
-5. Create server/package.json with dependencies
-6. Create server/tsconfig.json
-7. Create data/schema.sql with proper SQLite schema (NO CHECK constraints)
-8. Create server/src/lib/db.ts with DATABASE_PATH precedence logic
-9. Create server/src/routes/[resource].ts for each resource
-10. Create server/src/index.ts as main server
-11. Create mcp/pyproject.toml with uv dependencies
-12. Create mcp/src/[app]_mcp/server.py (basic MCP server)
-13. Create mcp/src/[app]_mcp/client.py (API client)
-14. Create mcp/README.md with MCP setup instructions
-15. Create root README.md with full setup instructions
-16. Create seed database from schema
-17. Call complete_generation when done
+1. Create .gitignore (exclude node_modules, runtime SQLite files, logs, etc.)
+2. Create .dockerignore (exclude dev files from Docker builds)
+3. Create .npmrc (pnpm configuration: side-effects-cache=false)
+4. Create pnpm-workspace.yaml
+5. Create root package.json with workspace config
+6. Create mprocs.yaml with server and mcp processes
+7. Create Dockerfile for production (use pnpm@9.15.1, NOT 8.x!)
+8. Create .github/workflows/deploy.yml for CI/CD (optional but recommended)
+9. Create server/package.json with dependencies
+10. Create server/tsconfig.json
+11. Create data/schema.sql with proper SQLite schema (NO CHECK constraints)
+12. Create server/src/lib/db.ts with DATABASE_PATH precedence logic
+13. Create server/src/routes/[resource].ts for each resource
+14. Create server/src/index.ts as main server
+15. Create mcp/pyproject.toml with uv dependencies
+16. Create mcp/src/[app]_mcp/server.py (basic MCP server)
+17. Create mcp/src/[app]_mcp/client.py (API client)
+18. Create mcp/README.md with MCP setup instructions
+19. Create API_DOCUMENTATION.md with all endpoint documentation
+20. Create root README.md with full setup instructions
+21. Create seed database from schema
+22. Call complete_generation when done
 
 Be thorough and ensure all files are production-ready and Fleet-compliant!
 """
@@ -316,35 +363,48 @@ class CodeGeneratorAgent(BaseAgent):
 
 Create all necessary files following Fleet standards. You MUST generate ALL of these files:
 
+**Configuration Files (CRITICAL - Do these FIRST):**
+1. .gitignore - Exclude node_modules, runtime SQLite files (*.sqlite-shm, *.sqlite-wal, data/*.sqlite, data/*.db), logs, .env, dist/, .cache, .DS_Store, meilisearch
+2. .dockerignore - Exclude dev files (node_modules, .git, .env, *.log, data/current.sqlite, data/*.sqlite-shm, data/*.sqlite-wal)
+3. .npmrc - Single line: "side-effects-cache=false"
+4. .github/workflows/deploy.yml - Basic CI/CD workflow (checkout, Docker build, generic deployment steps)
+
 **Root Configuration:**
-1. pnpm-workspace.yaml - Define packages: ["server"] (ONLY server, NOT mcp!)
-2. package.json - Root package with:
+5. pnpm-workspace.yaml - Define packages: ["server"] (ONLY server, NOT mcp!)
+6. package.json - Root package with:
    - "packageManager": "pnpm@9.15.1"
    - "dev": "mprocs" script
    - engines: node "^20.19.4", pnpm "^9.15.1"
-3. mprocs.yaml - Multi-process config for server + mcp
-4. Dockerfile - Production deployment configuration
-5. README.md - Complete setup instructions with pnpm run dev
+7. mprocs.yaml - Multi-process config for server + mcp
+8. Dockerfile - Production deployment with pnpm@9.15.1 (NOT 8.x!)
+9. README.md - Complete setup instructions with pnpm run dev
 
 **Data Layer:**
-6. data/schema.sql - Database schema (NO CHECK constraints!)
-7. Create seed.db from schema (use create_seed_database tool)
+10. data/schema.sql - Database schema (NO CHECK constraints!)
+11. Create seed.db from schema (use create_seed_database tool)
 
 **Server Package (server/):**
-8. server/package.json - Dependencies: express, better-sqlite3, cors, typescript, tsx
-9. server/tsconfig.json - TypeScript configuration
-10. server/src/lib/db.ts - Database connection with DATABASE_PATH→ENV_DB_DIR→default precedence
-11. server/src/routes/[resource].ts - One file per resource
-12. server/src/index.ts - Main Express server
+12. server/package.json - Dependencies: express, better-sqlite3, cors, typescript, tsx
+13. server/tsconfig.json - TypeScript configuration
+14. server/src/lib/db.ts - Database connection with DATABASE_PATH→ENV_DB_DIR→default precedence
+15. server/src/routes/[resource].ts - One file per resource
+16. server/src/index.ts - Main Express server
 
 **MCP Package (mcp/):**
-13. mcp/pyproject.toml - Python dependencies with uv (mcp, httpx, etc.)
-14. mcp/src/[app_name]_mcp/__init__.py - Package init
-15. mcp/src/[app_name]_mcp/server.py - MCP server with basic tools
-16. mcp/src/[app_name]_mcp/client.py - API client for local server
-17. mcp/README.md - MCP setup and usage instructions
+17. mcp/pyproject.toml - Python dependencies with uv (mcp, httpx, etc.)
+18. mcp/src/[app_name]_mcp/__init__.py - Package init
+19. mcp/src/[app_name]_mcp/server.py - MCP server with basic tools
+20. mcp/src/[app_name]_mcp/client.py - API client for local server
+21. mcp/README.md - MCP setup and usage instructions
+
+**Documentation:**
+22. API_DOCUMENTATION.md - Complete API documentation with all endpoints, parameters, responses
 
 CRITICAL Requirements:
+- .gitignore MUST exclude: node_modules/, data/*.sqlite, data/*.db, *.sqlite-shm, *.sqlite-wal, mprocs.log, dist/, .env, .DS_Store
+- .dockerignore MUST exclude: node_modules, .git, *.log, data/current.sqlite, data/*.sqlite-shm, data/*.sqlite-wal
+- .npmrc MUST contain exactly: "side-effects-cache=false"
+- Dockerfile MUST use pnpm@9.15.1 (NOT 8.15.0 or any 8.x version!)
 - pnpm-workspace.yaml MUST ONLY include ["server"], NOT ["server", "mcp"] or ["server", "data"]
 - mcp/ is a Python package (pyproject.toml), NOT a Node.js package
 - data/ is NOT a workspace package (no package.json)
@@ -356,6 +416,7 @@ CRITICAL Requirements:
 - mprocs.yaml MUST run both server and mcp processes
 - mprocs.yaml MUST set APP_ENV=local for MCP process (not RAMP_ENV)
 - Root package.json MUST have "dev": "mprocs" script
+- API_DOCUMENTATION.md MUST document ALL endpoints from the specification
 
 Use write_file for each file, then create_seed_database, then complete_generation.
 
