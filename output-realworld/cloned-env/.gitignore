@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+**/node_modules
+
+# Runtime SQLite files
+data/*.sqlite
+data/*.db
+*.sqlite-shm
+*.sqlite-wal
+
+# Logs
+*.log
+mprocs.log
+
+# Build artifacts
+dist/
+build/
+.cache
+
+# Environment variables
+.env
+.env.local
+server/.env
+
+# Editor directories
+.vscode
+.idea
+.cursor/
+
+# OS files
+.DS_Store
+
+# Meilisearch
+meilisearch
+meilisearch.db/
+data/meilisearch/

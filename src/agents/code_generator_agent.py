@@ -303,17 +303,45 @@ Auto-generate from the specification's endpoints list.
 25. Call complete_generation when validation succeeds
 
 ## Workflow:
-1. Generate ALL 21 files listed above using write_file
-2. Call create_seed_database
-3. Call validate_environment
-4. If validation fails:
-   - Read error messages carefully
-   - Use read_file to inspect the problematic file(s)
-   - Compare what's actually there vs what should be there
-   - Use write_file to fix the problems
-   - Re-run validate_environment
-5. Repeat step 4 until validation succeeds
-6. IMMEDIATELY call complete_generation when validation succeeds
+
+**CRITICAL FOR EFFICIENCY**: You can call multiple tools in ONE response. Batch file writes together to minimize iterations!
+
+### Generation Phase:
+1. **Generate ALL configuration files in ONE iteration** (6-8 files):
+   - .gitignore, .dockerignore, .npmrc, pnpm-workspace.yaml, package.json, mprocs.yaml, Dockerfile, .github/workflows/deploy.yml
+   - Use multiple write_file calls in a single response!
+
+2. **Generate data layer in ONE iteration**:
+   - data/schema.sql
+
+3. **Generate server package in ONE iteration** (3-4 files):
+   - server/package.json, server/tsconfig.json, server/src/lib/db.ts
+
+4. **Generate ALL route files in ONE iteration**:
+   - server/src/routes/[resource].ts for ALL resources
+   - Don't create routes one at a time - batch them!
+
+5. **Generate server entry point**:
+   - server/src/index.ts
+
+6. **Generate MCP package in ONE iteration** (4-5 files):
+   - mcp/pyproject.toml, mcp/src/[app]_mcp/__init__.py, mcp/src/[app]_mcp/server.py, mcp/src/[app]_mcp/client.py, mcp/README.md
+
+7. **Generate documentation in ONE iteration**:
+   - API_DOCUMENTATION.md, README.md
+
+8. **Create seed database**:
+   - Call create_seed_database
+
+9. **Validation loop**:
+   - Call validate_environment
+   - If fails: read errors, fix files (batch fixes if possible!), re-validate
+   - Repeat until success
+
+10. **Complete**:
+   - Call complete_generation IMMEDIATELY when validation succeeds
+
+**Total target: 6-10 iterations for initial generation** (not 20-30!)
 
 ## Debugging Failed Validation:
 

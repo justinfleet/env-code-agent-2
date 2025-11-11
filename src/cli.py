@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 from .core.llm_client import LLMClient
 from .agents.exploration_agent import ExplorationAgent
 from .agents.specification_agent import SpecificationAgent
+from .agents.spec_ingestion_agent import SpecificationIngestionAgent
 from .agents.code_generator_agent import CodeGeneratorAgent
 
 
@@ -24,12 +25,12 @@ def main():
     )
     parser.add_argument(
         "command",
-        choices=["clone", "explore"],
-        help="Command to run"
+        choices=["clone", "explore", "from-spec"],
+        help="Command to run: 'clone' = explore live API and clone, 'explore' = only explore API, 'from-spec' = clone from formal specification"
     )
     parser.add_argument(
-        "target_url",
-        help="Target API URL (e.g., http://localhost:3001)"
+        "target",
+        help="Target API URL (for clone/explore) or spec file/URL (for from-spec)"
     )
     parser.add_argument(
         "--output",
@@ -71,68 +72,93 @@ def main():
     llm = LLMClient(api_key=api_key)
 
     # ========================================
-    # PHASE 1: EXPLORATION
+    # BRANCH: from-spec vs clone/explore
     # ========================================
+    if args.command == "from-spec":
+        # ========================================
+        # PHASE 1: SPECIFICATION INGESTION
+        # ========================================
+        print(f"\n{'='*70}")
+        print(f"📋 PHASE 1: SPECIFICATION INGESTION")
+        print(f"{'='*70}\n")
+
+        ingestion_agent = SpecificationIngestionAgent(llm)
+        spec_result = ingestion_agent.ingest_spec(
+            spec_source=args.target,
+            source_type="auto"
+        )
+
+        if not spec_result['success']:
+            print("❌ Failed to parse specification")
+            sys.exit(1)
+
+        spec = spec_result['specification']
+
+    else:
+        # ========================================
+        # PHASE 1: EXPLORATION (for clone/explore)
+        # ========================================
+        print(f"\n{'='*70}")
+        print(f"🔍 PHASE 1: AUTONOMOUS API EXPLORATION")
+        print(f"{'='*70}\n")
+
+        if args.endpoints:
+            print(f"📍 Starting endpoints: {', '.join(args.endpoints)}")
+        print(f"🔄 Max iterations: {args.max_iterations}\n")
+
+        exploration_agent = ExplorationAgent(
+            llm,
+            args.target,
+            max_iterations=args.max_iterations
+        )
+        exploration_result = exploration_agent.explore(starting_endpoints=args.endpoints)
+
+        print(f"\n{'='*70}")
+        print(f"📊 EXPLORATION RESULTS")
+        print(f"{'='*70}\n")
+
+        print(f"✅ Success: {exploration_result['success']}")
+        print(f"🔄 Iterations: {exploration_result['iterations']}")
+        print(f"\n📝 Summary:\n{exploration_result['summary']}\n")
+
+        if exploration_result['observations']:
+            print(f"📋 Observations ({len(exploration_result['observations'])}):")
+            for i, obs in enumerate(exploration_result['observations'], 1):
+                print(f"  {i}. [{obs['category']}] {obs['observation']}")
+
+        # If just exploring, stop here
+        if args.command == "explore":
+            print()
+            return
+
+        # ========================================
+        # PHASE 2: SPECIFICATION GENERATION
+        # ========================================
+        print(f"\n{'='*70}")
+        print(f"📋 PHASE 2: SPECIFICATION GENERATION")
+        print(f"{'='*70}\n")
+
+        spec_agent = SpecificationAgent(llm)
+        spec_result = spec_agent.generate_spec(
+            observations=exploration_result['observations'],
+            target_url=args.target
+        )
+
+        if not spec_result['success']:
+            print("❌ Failed to generate specification")
+            sys.exit(1)
+
+        print("✅ Specification generated successfully!")
+        spec = spec_result['specification']
+        print(f"   Endpoints: {len(spec.get('endpoints', []))}")
+        print(f"   Tables: {len(spec.get('database', {}).get('tables', []))}")
+
+    # ========================================
+    # CODE GENERATION (Phase 2 for from-spec, Phase 3 for clone)
+    # ========================================
+    phase_num = "2" if args.command == "from-spec" else "3"
     print(f"\n{'='*70}")
-    print(f"🔍 PHASE 1: AUTONOMOUS API EXPLORATION")
-    print(f"{'='*70}\n")
-
-    if args.endpoints:
-        print(f"📍 Starting endpoints: {', '.join(args.endpoints)}")
-    print(f"🔄 Max iterations: {args.max_iterations}\n")
-
-    exploration_agent = ExplorationAgent(
-        llm,
-        args.target_url,
-        max_iterations=args.max_iterations
-    )
-    exploration_result = exploration_agent.explore(starting_endpoints=args.endpoints)
-
-    print(f"\n{'='*70}")
-    print(f"📊 EXPLORATION RESULTS")
-    print(f"{'='*70}\n")
-
-    print(f"✅ Success: {exploration_result['success']}")
-    print(f"🔄 Iterations: {exploration_result['iterations']}")
-    print(f"\n📝 Summary:\n{exploration_result['summary']}\n")
-
-    if exploration_result['observations']:
-        print(f"📋 Observations ({len(exploration_result['observations'])}):")
-        for i, obs in enumerate(exploration_result['observations'], 1):
-            print(f"  {i}. [{obs['category']}] {obs['observation']}")
-
-    # If just exploring, stop here
-    if args.command == "explore":
-        print()
-        return
-
-    # ========================================
-    # PHASE 2: SPECIFICATION GENERATION
-    # ========================================
-    print(f"\n{'='*70}")
-    print(f"📋 PHASE 2: SPECIFICATION GENERATION")
-    print(f"{'='*70}\n")
-
-    spec_agent = SpecificationAgent(llm)
-    spec_result = spec_agent.generate_spec(
-        observations=exploration_result['observations'],
-        target_url=args.target_url
-    )
-
-    if not spec_result['success']:
-        print("❌ Failed to generate specification")
-        sys.exit(1)
-
-    print("✅ Specification generated successfully!")
-    spec = spec_result['specification']
-    print(f"   Endpoints: {len(spec.get('endpoints', []))}")
-    print(f"   Tables: {len(spec.get('database', {}).get('tables', []))}")
-
-    # ========================================
-    # PHASE 3: CODE GENERATION
-    # ========================================
-    print(f"\n{'='*70}")
-    print(f"⚡ PHASE 3: FLEET ENVIRONMENT GENERATION")
+    print(f"⚡ PHASE {phase_num}: FLEET ENVIRONMENT GENERATION")
     print(f"{'='*70}\n")
 
     # Clean and create output directory

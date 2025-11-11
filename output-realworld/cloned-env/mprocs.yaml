@@ -1,0 +1,12 @@
+procs:
+  server:
+    cmd: ["pnpm", "--filter", "server", "dev"]
+    env:
+      NODE_ENV: development
+      PORT: "3002"
+  mcp:
+    cmd: ["uv", "run", "python", "-m", "realworld_mcp.server"]
+    cwd: "./mcp"
+    env:
+      APP_ENV: local
+      API_BASE_URL: "http://localhost:3002"

@@ -1,18 +1,26 @@
-# env-code-agent
+# env-code-agent-2
 
-🤖 **Autonomous API cloning system** that uses LLM-powered agents to explore APIs and generate Fleet-compliant environments.
+🤖 **Autonomous Fleet environment generation** from live APIs or formal specifications.
 
 ## Overview
 
-env-code-agent is an **agentic coding system** that:
+env-code-agent-2 is an **agentic coding system** that generates Fleet-compliant environments through two approaches:
 
+### Approach 1: Live API Exploration (3-Phase)
 1. 🔍 **Autonomously explores** target APIs using Claude as the decision-maker
 2. 📋 **Generates specifications** by synthesizing exploration findings
 3. ⚡ **Writes production code** that implements the API as a Fleet environment
-4. ✅ **Fleet-compliant** output (seed.db, deterministic, backend-driven)
+
+### Approach 2: Formal Specification (2-Phase)
+1. 📋 **Parses formal specs** (OpenAPI, RealWorld, custom JSON)
+2. ⚡ **Writes production code** directly from the specification
+
+Both approaches produce:
+✅ **Fleet-compliant** output (seed.db, deterministic, backend-driven)
 
 ## Architecture
 
+### Approach 1: Live API Exploration (3-Phase)
 ```
 ┌─────────────────────────────────────────────────┐
 │         Exploration Agent (LLM-driven)          │
@@ -24,6 +32,24 @@ env-code-agent is an **agentic coding system** that:
 ┌─────────────────────────────────────────────────┐
 │      Specification Builder (LLM synthesis)      │
 │  Generates: OpenAPI spec + DB schema + logic    │
+└─────────────────┬───────────────────────────────┘
+                  │ Structured specification
+                  ↓
+┌─────────────────────────────────────────────────┐
+│      Code Generator Agent (LLM coding)          │
+│  Writes: Express server + SQLite + routes       │
+└─────────────────┬───────────────────────────────┘
+                  │ Generated environment
+                  ↓
+                Fleet-compliant environment ready! ✅
+```
+
+### Approach 2: Formal Specification (2-Phase)
+```
+┌─────────────────────────────────────────────────┐
+│    Specification Ingestion Agent (Parser)       │
+│  Reads: OpenAPI, RealWorld, custom specs        │
+│  Parses: endpoints, schemas, relationships      │
 └─────────────────┬───────────────────────────────┘
                   │ Structured specification
                   ↓
@@ -61,13 +87,43 @@ cp .env.example .env
 
 ### Usage
 
-```bash
-# Clone a local API
-pnpm clone http://localhost:3000
+#### Option 1: Clone from Live API (3-Phase)
 
-# Clone with custom output
-OUTPUT_DIR=./my-clone pnpm clone http://localhost:3000
+```bash
+# Clone a running API
+python3 -m src.cli clone http://localhost:3001
+
+# With custom options
+python3 -m src.cli clone http://localhost:3001 \
+  --output ./my-output \
+  --port 3002 \
+  --max-iterations 50 \
+  --endpoints /api/products /api/users
+
+# Just explore (don't generate code)
+python3 -m src.cli explore http://localhost:3001
 ```
+
+#### Option 2: Clone from Formal Specification (2-Phase)
+
+```bash
+# From local spec file
+python3 -m src.cli from-spec ./examples/realworld-conduit-spec.json
+
+# From URL (OpenAPI, etc.)
+python3 -m src.cli from-spec https://example.com/api-spec.json
+
+# With custom options
+python3 -m src.cli from-spec ./spec.json \
+  --output ./my-output \
+  --port 3002
+```
+
+**Supported spec formats:**
+- OpenAPI 3.x (JSON/YAML)
+- RealWorld Conduit format
+- Custom JSON specifications
+- Any structured API documentation
 
 ### Run the Generated Environment
 
@@ -131,11 +187,13 @@ The **Code Generator Agent** writes production-ready code:
 - ✅ Fleet-compliant structure
 - ✅ Proper error handling
 
-## Example: Cloning Famazon
+## Examples
+
+### Example 1: From Live API (Famazon)
 
 ```bash
 # Assuming famazon is running on :3000
-pnpm clone http://localhost:3000
+python3 -m src.cli clone http://localhost:3000
 
 # Output:
 🔍 PHASE 1: AUTONOMOUS API EXPLORATION
@@ -155,6 +213,36 @@ pnpm clone http://localhost:3000
 
 🎉 CLONING COMPLETE!
 ```
+
+### Example 2: From Formal Specification (RealWorld Conduit)
+
+```bash
+# Use included example spec
+python3 -m src.cli from-spec ./examples/realworld-conduit-spec.json
+
+# Output:
+📋 PHASE 1: SPECIFICATION INGESTION
+📥 Fetching spec from ./examples/realworld-conduit-spec.json...
+✅ Read 15234 characters (JSON format)
+✅ Specification parsed successfully!
+   API: RealWorld Conduit API
+   Endpoints: 19
+   Tables: 7
+
+⚡ PHASE 2: FLEET ENVIRONMENT GENERATION
+📁 Output directory: ./output/cloned-env
+🔧 Generating files...
+✅ Code generation complete!
+
+🎉 CLONING COMPLETE!
+```
+
+The included `examples/realworld-conduit-spec.json` demonstrates:
+- Complete RealWorld (Medium clone) API specification
+- 19 endpoints (articles, comments, users, profiles, favorites, follows, tags)
+- 7 database tables with relationships
+- Authentication with JWT
+- Many-to-many relationships (article_tags, favorites, follows)
 
 ## Configuration
 
