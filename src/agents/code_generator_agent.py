@@ -263,6 +263,7 @@ Auto-generate from the specification's endpoints list.
 
 ## Available Tools:
 - write_file: Write any file to output directory
+- read_file: Read contents of a previously generated file (use when debugging validation failures)
 - create_seed_database: Create seed.db from schema.sql
 - validate_environment: Run pnpm install + build + dev, check health endpoint
 - complete_generation: Mark as done (only after validation succeeds!)
@@ -303,11 +304,32 @@ Auto-generate from the specification's endpoints list.
 3. Call validate_environment
 4. If validation fails:
    - Read error messages carefully
-   - Identify which files have issues
+   - Use read_file to inspect the problematic file(s)
+   - Compare what's actually there vs what should be there
    - Use write_file to fix the problems
    - Re-run validate_environment
 5. Repeat step 4 until validation succeeds
 6. IMMEDIATELY call complete_generation when validation succeeds
+
+## Debugging Failed Validation:
+
+When validate_environment fails, follow this process:
+1. Read the error message carefully to identify the issue
+2. Use read_file to inspect the actual contents of relevant files
+3. Compare what's there vs what should be there
+4. Fix using write_file
+5. Re-validate
+
+Examples:
+- Error: "Cannot find module 'better-sqlite3'"
+  → read_file("server/package.json") to see dependencies
+  → Check if better-sqlite3 is in dependencies
+  → If missing, add it and rewrite the file
+
+- Error: "Type error in routes/books.ts"
+  → read_file("server/src/routes/books.ts") to see the code
+  → read_file("server/src/lib/db.ts") to check imports
+  → Fix the type error and rewrite
 
 CRITICAL: As soon as validate_environment returns success=true, you MUST call complete_generation immediately.
 Do NOT make any additional changes after validation succeeds!
@@ -344,6 +366,32 @@ class CodeGeneratorAgent(BaseAgent):
                         }
                     },
                     "required": ["path", "content"]
+                }
+            },
+            {
+                "name": "read_file",
+                "description": """Read contents of a previously generated file.
+
+Use this when:
+- Validation fails and you need to inspect what's actually in a file
+- You need to check if a dependency/import is present
+- You want to verify the exact structure of a file you wrote many iterations ago
+- Debugging cross-file consistency issues
+
+Do NOT use this:
+- Immediately after writing a file (it's fresh in your memory)
+- Just to confirm something you're certain about
+
+This tool gives you the ground truth of what's actually on disk, which is critical for debugging validation failures.""",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative path within output directory (e.g., 'server/package.json')"
+                        }
+                    },
+                    "required": ["path"]
                 }
             },
             {
@@ -419,6 +467,8 @@ IMPORTANT: Do not call complete_generation until validate_environment returns su
         """Execute code generation tools"""
         if tool_name == "write_file":
             return self._write_file(tool_input)
+        elif tool_name == "read_file":
+            return self._read_file(tool_input)
         elif tool_name == "create_seed_database":
             return self._create_seed_database(tool_input)
         elif tool_name == "validate_environment":
@@ -454,6 +504,40 @@ IMPORTANT: Do not call complete_generation until validate_environment returns su
             "message": f"File written: {rel_path}",
             "path": full_path
         }
+
+    def _read_file(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Read a previously generated file"""
+        rel_path = params.get("path")
+        full_path = os.path.join(self.output_dir, rel_path)
+
+        # Check if file exists
+        if not os.path.exists(full_path):
+            return {
+                "success": False,
+                "error": f"File not found: {rel_path}",
+                "message": f"❌ Cannot read {rel_path} - file doesn't exist. Did you create it yet?"
+            }
+
+        # Read the file
+        try:
+            with open(full_path, 'r') as f:
+                content = f.read()
+
+            line_count = len(content.split('\n'))
+
+            return {
+                "success": True,
+                "path": rel_path,
+                "content": content,
+                "lines": line_count,
+                "message": f"✓ Read {rel_path} ({line_count} lines)"
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"❌ Failed to read {rel_path}: {str(e)}"
+            }
 
     def _create_seed_database(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Create seed database from schema SQL"""
@@ -522,25 +606,45 @@ IMPORTANT: Do not call complete_generation until validate_environment returns su
 
                 print("   Cleaned stale workspace cache")
 
-                # Force fresh install
-                clean_result = subprocess.run(
-                    ["pnpm", "install", "--force"],
-                    cwd=self.output_dir,
-                    capture_output=True,
-                    text=True,
-                    timeout=120
-                )
+                # Force fresh install with proper process management
+                proc = None
+                try:
+                    proc = subprocess.Popen(
+                        ["pnpm", "install", "--force"],
+                        cwd=self.output_dir,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
 
-                if clean_result.returncode != 0:
+                    # Wait with timeout
+                    stdout, stderr = proc.communicate(timeout=120)
+
+                    if proc.returncode != 0:
+                        return {
+                            "success": False,
+                            "phase": "workspace-fix",
+                            "errors": stderr,
+                            "stdout": stdout,
+                            "message": "❌ Failed to fix workspace after cleaning cache."
+                        }
+
+                    print("   ✓ Workspace rebuilt successfully")
+
+                except subprocess.TimeoutExpired:
+                    # Kill the process on timeout
+                    if proc:
+                        proc.kill()
+                        proc.wait()
+                    print("   ⚠️  Workspace reinstall timed out after 120s")
                     return {
                         "success": False,
                         "phase": "workspace-fix",
-                        "errors": clean_result.stderr,
-                        "stdout": clean_result.stdout,
-                        "message": "❌ Failed to fix workspace after cleaning cache."
+                        "errors": "pnpm install --force timed out after 120 seconds",
+                        "stdout": "",
+                        "message": "❌ Workspace reinstall timed out. Try cleaning pnpm cache: pnpm store prune"
                     }
 
-                print("   ✓ Workspace rebuilt successfully")
         except Exception as e:
             print(f"⚠️  Warning: Workspace auto-fix failed: {e}")
 
@@ -769,7 +873,8 @@ Follow the workflow described in the system prompt:
 
 4. If validation fails:
    - Read the error messages carefully
-   - Identify which files have issues
+   - Use read_file to inspect the problematic files
+   - Identify what needs to be fixed
    - Use write_file to fix the problems
    - Call validate_environment again
 
