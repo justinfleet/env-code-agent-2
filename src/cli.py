@@ -48,8 +48,8 @@ def main():
         "--max-iterations",
         "-m",
         type=int,
-        help="Maximum number of exploration iterations (default: 100)",
-        default=100
+        help="Maximum number of exploration iterations (default: 30, recommended: 30-50 for thorough exploration)",
+        default=30
     )
     parser.add_argument(
         "--port",

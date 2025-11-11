@@ -142,8 +142,11 @@ DO NOT use `get_capabilities(notification_options=None)` - it will fail!
   - Do NOT include mcp/ (it's Python, not Node.js)
   - Do NOT include data/ (it's just database files, not a package)
 - **Root package.json** - Must have:
-  - "packageManager": "pnpm@9.15.1"
-  - "dev": "mprocs" script
+  - "packageManager": "pnpm@9.15.1" (EXACTLY this version!)
+  - "dev" script: Use EITHER:
+    - Option A: "dev": "cd server && pnpm dev" (simple, reliable)
+    - Option B: "dev": "mprocs" (only if mprocs is in devDependencies)
+  - CRITICAL: Test that the dev script works! Don't use mprocs unless it's installed.
   - engines: { "node": ">=20.9.0", "pnpm": "^9.15.1" }
 - **server/ package** - Has its own package.json with TypeScript + Express dependencies
 - **mcp/ package** - Python dependencies in pyproject.toml (NOT package.json)
@@ -274,9 +277,10 @@ Auto-generate from the specification's endpoints list.
 3. Create .npmrc (pnpm configuration: side-effects-cache=false)
 4. Create pnpm-workspace.yaml (packages: ["server"] - ONLY server, NOT mcp!)
 5. Create root package.json with:
-   - "packageManager": "pnpm@9.15.1"
-   - "dev": "mprocs" script
+   - "packageManager": "pnpm@9.15.1" (EXACTLY this version!)
+   - "dev": "cd server && pnpm dev" (simple, always works)
    - engines: { "node": ">=20.9.0", "pnpm": "^9.15.1" }
+   - mprocs in devDependencies if you want to use mprocs.yaml later
 6. Create mprocs.yaml with server and mcp processes (cmd MUST be array!)
 7. Create Dockerfile for production (use pnpm@9.15.1, NOT 8.x!)
 8. Create .github/workflows/deploy.yml for CI/CD
@@ -576,77 +580,84 @@ IMPORTANT: Do not call complete_generation until validate_environment returns su
         import time
         import signal
 
-        # Step 0: Auto-fix workspace structure (delete stale cache and reinstall)
+        # Step 0: Auto-fix workspace structure (only if already installed)
         print("🔍 Ensuring clean workspace state...")
-        try:
-            # Check if workspace is recognized
-            result = subprocess.run(
-                ["pnpm", "list", "--depth", "0"],
-                cwd=self.output_dir,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
+        node_modules_path = os.path.join(self.output_dir, "node_modules")
 
-            if "server" not in result.stdout:
-                print("⚠️  Workspace cache issue detected - cleaning and reinstalling...")
+        # Only check for workspace issues if node_modules already exists
+        # (fresh installs don't need this check)
+        if os.path.exists(node_modules_path):
+            try:
+                # Check if workspace is recognized
+                result = subprocess.run(
+                    ["pnpm", "list", "--depth", "0"],
+                    cwd=self.output_dir,
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
 
-                # Auto-fix: Delete lockfile and node_modules
-                import shutil
-                lockfile = os.path.join(self.output_dir, "pnpm-lock.yaml")
-                node_modules = os.path.join(self.output_dir, "node_modules")
-                server_nm = os.path.join(self.output_dir, "server", "node_modules")
+                if "server" not in result.stdout:
+                    print("⚠️  Workspace cache issue detected - cleaning and reinstalling...")
 
-                for path in [lockfile, node_modules, server_nm]:
-                    if os.path.exists(path):
-                        if os.path.isfile(path):
-                            os.remove(path)
-                        else:
-                            shutil.rmtree(path)
+                    # Auto-fix: Delete lockfile and node_modules
+                    import shutil
+                    lockfile = os.path.join(self.output_dir, "pnpm-lock.yaml")
+                    node_modules = os.path.join(self.output_dir, "node_modules")
+                    server_nm = os.path.join(self.output_dir, "server", "node_modules")
 
-                print("   Cleaned stale workspace cache")
+                    for path in [lockfile, node_modules, server_nm]:
+                        if os.path.exists(path):
+                            if os.path.isfile(path):
+                                os.remove(path)
+                            else:
+                                shutil.rmtree(path)
 
-                # Force fresh install with proper process management
-                proc = None
-                try:
-                    proc = subprocess.Popen(
-                        ["pnpm", "install", "--force"],
-                        cwd=self.output_dir,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True
-                    )
+                    print("   Cleaned stale workspace cache")
 
-                    # Wait with timeout
-                    stdout, stderr = proc.communicate(timeout=120)
+                    # Force fresh install with proper process management
+                    proc = None
+                    try:
+                        proc = subprocess.Popen(
+                            ["pnpm", "install", "--force"],
+                            cwd=self.output_dir,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
 
-                    if proc.returncode != 0:
+                        # Wait with timeout
+                        stdout, stderr = proc.communicate(timeout=120)
+
+                        if proc.returncode != 0:
+                            return {
+                                "success": False,
+                                "phase": "workspace-fix",
+                                "errors": stderr,
+                                "stdout": stdout,
+                                "message": "❌ Failed to fix workspace after cleaning cache."
+                            }
+
+                        print("   ✓ Workspace rebuilt successfully")
+
+                    except subprocess.TimeoutExpired:
+                        # Kill the process on timeout
+                        if proc:
+                            proc.kill()
+                            proc.wait()
+                        print("   ⚠️  Workspace reinstall timed out after 120s")
                         return {
                             "success": False,
                             "phase": "workspace-fix",
-                            "errors": stderr,
-                            "stdout": stdout,
-                            "message": "❌ Failed to fix workspace after cleaning cache."
+                            "errors": "pnpm install --force timed out after 120 seconds",
+                            "stdout": "",
+                            "message": "❌ Workspace reinstall timed out. Try cleaning pnpm cache: pnpm store prune"
                         }
 
-                    print("   ✓ Workspace rebuilt successfully")
-
-                except subprocess.TimeoutExpired:
-                    # Kill the process on timeout
-                    if proc:
-                        proc.kill()
-                        proc.wait()
-                    print("   ⚠️  Workspace reinstall timed out after 120s")
-                    return {
-                        "success": False,
-                        "phase": "workspace-fix",
-                        "errors": "pnpm install --force timed out after 120 seconds",
-                        "stdout": "",
-                        "message": "❌ Workspace reinstall timed out. Try cleaning pnpm cache: pnpm store prune"
-                    }
-
-        except Exception as e:
-            print(f"⚠️  Warning: Workspace auto-fix failed: {e}")
+            except Exception as e:
+                print(f"⚠️  Warning: Workspace auto-fix failed: {e}")
+        else:
+            print("✅ Fresh install - skipping workspace check")
 
         print("✅ Workspace ready")
 
