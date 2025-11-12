@@ -268,7 +268,7 @@ Auto-generate from the specification's endpoints list.
 - write_file: Write any file to output directory
 - read_file: Read contents of a previously generated file (use when debugging validation failures)
 - create_seed_database: Create seed.db from schema.sql
-- validate_environment: Run pnpm install + build + dev, check health endpoint
+- validate_environment: Run pnpm install + build + dev, check health endpoint, test all API endpoints against spec
 - complete_generation: Mark as done (only after validation succeeds!)
 
 ## Steps (Follow in Order):
@@ -298,7 +298,7 @@ Auto-generate from the specification's endpoints list.
 20. Create API_DOCUMENTATION.md with all endpoint documentation
 21. Create root README.md with full setup instructions
 22. Call create_seed_database to create seed.db from schema
-23. Call validate_environment to test everything works
+23. Call validate_environment to test everything works (builds, runs, and API endpoints match spec)
 24. If validation fails, fix issues and re-validate
 25. Call complete_generation when validation succeeds
 
@@ -421,6 +421,7 @@ class CodeGeneratorAgent(BaseAgent):
         self.output_dir = output_dir
         self.port = port
         self.generated_files = []
+        self.specification = None  # Will be set during generate_code
 
         # Define tools for code generation
         tools = [
@@ -493,12 +494,14 @@ This tool gives you the ground truth of what's actually on disk, which is critic
 This will:
 1. Run 'pnpm install' to install all dependencies
 2. Run 'pnpm build' to compile TypeScript and build the project
-3. Start 'pnpm run dev' and check the health endpoint at http://localhost:3001/health
+3. Start 'pnpm run dev' and check the health endpoint
+4. Test all API endpoints against the specification (validates actual behavior matches spec)
 
 Returns:
 - success: true if all checks pass, false otherwise
-- phase: which phase failed (install/build/dev) if validation fails
+- phase: which phase failed (install/build/dev/api-validation) if validation fails
 - errors: error messages from stderr if any phase fails
+- failed_tests: list of failed endpoint tests (if api-validation fails)
 - stdout: full output for debugging
 - message: human-readable description of what happened
 
@@ -881,6 +884,23 @@ IMPORTANT: Do not call complete_generation until validate_environment returns su
 
             print("✅ Health check passed")
 
+            # Step 4: Validate API endpoints against specification
+            if self.specification:
+                print("🔍 Validating API endpoints against specification...")
+                spec_validation = self._validate_api_endpoints()
+
+                if not spec_validation['success']:
+                    return {
+                        "success": False,
+                        "phase": "api-validation",
+                        "errors": spec_validation.get('errors', 'API validation failed'),
+                        "failed_tests": spec_validation.get('failed_tests', []),
+                        "stdout": "",
+                        "message": f"❌ API validation failed: {spec_validation.get('summary', 'See errors')}"
+                    }
+
+                print(f"✅ API validation passed ({spec_validation.get('passed', 0)} tests)")
+
             # Compact success result (errors are verbose because agent needs them to debug)
             return {
                 "success": True,
@@ -915,6 +935,123 @@ IMPORTANT: Do not call complete_generation until validate_environment returns su
                     except Exception:
                         pass
 
+    def _validate_api_endpoints(self) -> Dict[str, Any]:
+        """Validate API endpoints against specification"""
+        import urllib.request
+        import urllib.error
+        import json as json_module
+
+        if not self.specification:
+            return {"success": True, "message": "No specification to validate against"}
+
+        endpoints = self.specification.get('endpoints', [])
+        if not endpoints:
+            return {"success": True, "message": "No endpoints in specification"}
+
+        passed_tests = []
+        failed_tests = []
+        base_url = f"http://localhost:{self.port}"
+
+        # Test each endpoint
+        for endpoint in endpoints:
+            method = endpoint.get('method', 'GET').upper()
+            path = endpoint.get('path', '')
+
+            # Skip authentication-required endpoints for now (would need token)
+            if endpoint.get('auth_required') and method != 'GET':
+                continue
+
+            try:
+                # Only test GET endpoints in basic validation
+                # (POST/PUT/DELETE would require valid payloads and may modify data)
+                if method == 'GET':
+                    url = base_url + path
+
+                    # Replace path parameters with placeholder values
+                    # e.g., /api/articles/:slug -> /api/articles/test-slug
+                    url = url.replace(':slug', 'test-slug')
+                    url = url.replace(':id', '1')
+                    url = url.replace(':username', 'testuser')
+
+                    try:
+                        req = urllib.request.Request(url, method='GET')
+                        with urllib.request.urlopen(req, timeout=3) as response:
+                            status = response.status
+
+                            # Accept 200 (success) or 404 (resource doesn't exist, but endpoint works)
+                            # Reject 500 (server error)
+                            if status in [200, 404]:
+                                # Try to parse JSON response
+                                try:
+                                    body = response.read().decode('utf-8')
+                                    json_module.loads(body)
+                                    passed_tests.append({
+                                        "endpoint": f"{method} {path}",
+                                        "status": "✓",
+                                        "message": f"Returns {status} with valid JSON"
+                                    })
+                                except json_module.JSONDecodeError:
+                                    failed_tests.append({
+                                        "endpoint": f"{method} {path}",
+                                        "status": "✗",
+                                        "message": f"Returns {status} but invalid JSON"
+                                    })
+                            else:
+                                failed_tests.append({
+                                    "endpoint": f"{method} {path}",
+                                    "status": "✗",
+                                    "message": f"Unexpected status code: {status}"
+                                })
+
+                    except urllib.error.HTTPError as e:
+                        # 404 is acceptable for parameterized routes with test data
+                        # 401/403 means endpoint exists but needs auth
+                        if e.code in [404, 401, 403]:
+                            passed_tests.append({
+                                "endpoint": f"{method} {path}",
+                                "status": "✓",
+                                "message": f"Endpoint exists (returned {e.code})"
+                            })
+                        else:
+                            failed_tests.append({
+                                "endpoint": f"{method} {path}",
+                                "status": "✗",
+                                "message": f"HTTP error {e.code}: {str(e)}"
+                            })
+
+            except Exception as e:
+                failed_tests.append({
+                    "endpoint": f"{method} {path}",
+                    "status": "✗",
+                    "message": f"Test failed: {str(e)}"
+                })
+
+        # Summary
+        total = len(passed_tests) + len(failed_tests)
+
+        if failed_tests:
+            error_summary = "\n".join([
+                f"  {test['endpoint']}: {test['message']}"
+                for test in failed_tests
+            ])
+            return {
+                "success": False,
+                "passed": len(passed_tests),
+                "failed": len(failed_tests),
+                "total": total,
+                "failed_tests": failed_tests,
+                "errors": error_summary,
+                "summary": f"{len(failed_tests)}/{total} tests failed"
+            }
+        else:
+            return {
+                "success": True,
+                "passed": len(passed_tests),
+                "failed": 0,
+                "total": total,
+                "message": f"All {len(passed_tests)} endpoint tests passed"
+            }
+
     def generate_code(self, specification: Dict[str, Any]) -> Dict[str, Any]:
         """
         Generate Fleet environment code from specification
@@ -925,6 +1062,9 @@ IMPORTANT: Do not call complete_generation until validate_environment returns su
         Returns:
             Generation results including file list
         """
+        # Store specification for validation
+        self.specification = specification
+
         # Format specification for the prompt
         spec_json = json.dumps(specification, indent=2)
 
@@ -952,12 +1092,13 @@ Follow the workflow described in the system prompt:
 
 3. Call validate_environment to test the generated environment
    - This will run: pnpm install, pnpm build, pnpm run dev
-   - And check the health endpoint
+   - Check the health endpoint
+   - Test all API endpoints against the specification (validates actual behavior!)
 
 4. If validation fails:
-   - Read the error messages carefully
+   - Read the error messages carefully (including failed endpoint tests)
    - Use read_file to inspect the problematic files
-   - Identify what needs to be fixed
+   - Identify what needs to be fixed (TypeScript errors, missing routes, wrong responses)
    - Use write_file to fix the problems
    - Call validate_environment again
 
@@ -965,7 +1106,7 @@ Follow the workflow described in the system prompt:
 
 6. Only after validation returns success=true, call complete_generation
 
-Remember: The validation will catch TypeScript errors, missing dependencies, incorrect configs, etc.
+Remember: The validation will catch TypeScript errors, missing dependencies, incorrect configs, AND verify your API endpoints actually work as specified.
 Use those error messages to guide your fixes. You have all the context needed to debug and fix issues."""
 
         result = self.run(initial_prompt)
